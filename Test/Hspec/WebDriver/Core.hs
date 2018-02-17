@@ -1,29 +1,15 @@
+{-# OPTIONS_GHC -fno-warn-type-defaults #-}
 {-# LANGUAGE OverloadedStrings, QuasiQuotes, FlexibleInstances, DeriveDataTypeable, TypeFamilies, CPP, NamedFieldPuns, ScopedTypeVariables, TupleSections #-}
 module Test.Hspec.WebDriver.Core where
 
-import Control.Concurrent.MVar
 import Control.Exception (SomeException(..))
-import Control.Exception.Lifted (try, Exception, onException, throwIO, finally)
-import Control.Monad (replicateM, void)
-import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Trans.State (state, evalState, execState)
-import qualified Data.Aeson as A
-import Data.Default (Default(..))
+import Control.Exception.Lifted (try, onException, throwIO)
 import Data.IORef (newIORef, writeIORef, readIORef)
-import Data.Maybe
-import Data.String.Interpolate.IsString
-import qualified Data.Text as T
-import Data.Typeable (Typeable, cast)
-import GHC.Stack
-import Test.HUnit (assertEqual, assertFailure)
-import qualified Test.Hspec as H
-import Test.Hspec hiding (shouldReturn, shouldBe, shouldSatisfy, shouldThrow, pending, pendingWith, example, before, beforeAll, after)
-import Test.Hspec.Core.Spec (Result(..), Item(..), Example(..), SpecTree, Tree(..), fromSpecList, runSpecM)
+import Data.Typeable (cast)
+import Test.Hspec.Core.Spec (Result(..), Example(..))
 import Test.Hspec.WebDriver.Types
 import Test.Hspec.WebDriver.Util
-import Test.WebDriver (WD, Capabilities)
 import qualified Test.WebDriver as W
-import qualified Test.WebDriver.Capabilities as W
 import Test.WebDriver.Commands
 import qualified Test.WebDriver.Config as W
 import qualified Test.WebDriver.Session as W
@@ -54,6 +40,7 @@ instance Eq multi => Example (WdExample multi) where
           (_, True) -> Pending (Just "Session has been aborted")
           _ -> Success
 
+runAction' :: Eq multi => WdExample multi -> WdTestSession multi -> IO (SessionState multi, Maybe SomeException)
 runAction' (WdExample multi (WdOptions {skipRemainingTestsAfterFailure}) wd) testsession = do
   tstate <- wdTestOpen testsession
 

@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings, QuasiQuotes, FlexibleInstances, DeriveDataTypeable, TypeFamilies, CPP, NamedFieldPuns, ScopedTypeVariables, TupleSections #-}
 module Test.Hspec.WebDriver.Convenience where
 
+import Control.Exception.Lifted
 import GHC.Stack
 import Test.Hspec
 import Test.Hspec.WebDriver.Types
