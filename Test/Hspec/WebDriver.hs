@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings, FlexibleInstances, DeriveDataTypeable, TypeFamilies, CPP, NamedFieldPuns #-}
+{-# LANGUAGE OverloadedStrings, QuasiQuotes, FlexibleInstances, DeriveDataTypeable, TypeFamilies, CPP, NamedFieldPuns, ScopedTypeVariables, TupleSections #-}
 -- | Write hspec tests that are webdriver tests, automatically managing the webdriver sessions.
 --
 -- This module re-exports functions from "Test.Hspec" and "Test.WebDriver.Commands" and it is
@@ -85,20 +85,28 @@ module Test.Hspec.WebDriver(
   , parallel
   , runIO
 
+  -- * Hooks
+  , before
+  , beforeAll
+  , after
+
   -- * Re-exports from "Test.WebDriver"
   , WD
   , Capabilities
   , module Test.WebDriver.Commands
 ) where
 
-import Control.Concurrent.MVar (MVar, takeMVar, putMVar, newEmptyMVar)
+import Control.Concurrent.MVar
 import Control.Exception (SomeException(..))
-import Control.Exception.Lifted (try, Exception, onException, throwIO)
-import Control.Monad (replicateM)
+import Control.Exception.Lifted (try, Exception, onException, throwIO, finally)
+import Control.Monad (replicateM, void)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.State (state, evalState, execState)
+import qualified Data.Aeson as A
 import Data.Default (Default(..))
 import Data.IORef (newIORef, writeIORef, readIORef)
+import Data.Maybe
+import Data.String.Interpolate.IsString
 import qualified Data.Text as T
 import Data.Typeable (Typeable, cast)
 import GHC.Stack
@@ -110,11 +118,13 @@ import Data.Traversable (traverse)
 #endif
 
 import qualified Test.Hspec as H
-import Test.Hspec hiding (shouldReturn, shouldBe, shouldSatisfy, shouldThrow, pending, pendingWith, example)
+import Test.Hspec hiding (shouldReturn, shouldBe, shouldSatisfy, shouldThrow, pending, pendingWith, example
+                         , before, beforeAll, after)
 import Test.Hspec.Core.Spec (Result(..), Item(..), Example(..), SpecTree, Tree(..), fromSpecList, runSpecM)
 
 import Test.WebDriver (WD, Capabilities)
 import qualified Test.WebDriver as W
+import qualified Test.WebDriver.Capabilities as W
 import Test.WebDriver.Commands
 import qualified Test.WebDriver.Config as W
 import qualified Test.WebDriver.Session as W
@@ -128,7 +138,7 @@ data SessionState multi = SessionState {
     -- | True if the previous example was aborted with 'inspectSession'
   , stPrevAborted :: Bool
     -- | Create a new session
-  , stCreateSession :: IO W.WDSession
+  , stConfig :: W.WDConfig
 }
 
 -- | Internal state for webdriver test sessions.
@@ -162,7 +172,7 @@ data WdTestSession multi = WdTestSession {
 -- session has the same type @multi@.
 data WdExample multi = WdExample multi WdOptions (WD ()) | WdPending (Maybe String)
 
-data WdOptions = WdOptions {
+newtype WdOptions = WdOptions {
   -- Whether to skip the rest of the tests once one fails
   skipRemainingTestsAfterFailure :: Bool
   }
@@ -244,21 +254,34 @@ example = WdExample def def . liftIO
 -- This function uses the default webdriver host (127.0.0.1), port (4444), and basepath
 -- (@\/wd\/hub@).
 session :: (HasCallStack) => String -> ([Capabilities], SpecWith (WdTestSession multi)) -> Spec
-session = sessionWith W.defaultConfig
+session msg (caps, spec) = sessionWith W.defaultConfig msg (caps', spec)
+  where
+    caps' = map f caps
+    f c = case A.toJSON (W.browser c) of
+      A.String b -> (c, T.unpack b)
+      _ -> (c, show c) -- this should not be the case, every browser toJSON is a string
+
 
 -- | A variation of 'session' which allows you to specify the webdriver configuration.  Note that
 -- the capabilities in the 'W.WDConfig' will be ignored, instead the capabilities will come from the
 -- list of 'Capabilities' passed to 'sessionWith'.
-sessionWith :: (HasCallStack) => W.WDConfig -> String -> ([Capabilities], SpecWith (WdTestSession multi)) -> Spec
+--
+-- In addition, each capability is paired with a descriptive string which is passed to hspec to
+-- describe the example.  By default, 'session' uses the browser name as the description.  'sessionWith'
+-- supports a more detailed description so that in the hspec output you can distinguish between
+-- capabilities that share the same browser but differ in the details, for example capabilities with and
+-- without javascript.
+sessionWith :: (HasCallStack) => W.WDConfig -> String -> ([(Capabilities, String)], SpecWith (WdTestSession multi)) -> Spec
 sessionWith cfg msg (caps, spec) = spec'
     where
+        procT c = procTestSession cfg (W.getCaps c) spec
         spec' = case caps of
                     [] -> it msg $ H.pendingWith "No capabilities specified"
-                    [c] -> describe (msg ++ " using capabilities") $ procTestSession cfg c spec
-                    _ -> describe msg $ mapM_ (\c -> describe ("using capabilities") $ procTestSession cfg c spec) caps
+                    [(c,cDscr)] -> describe (msg ++ " using " ++ cDscr) $ procT c
+                    _ -> describe msg $ mapM_ (\(c,cDscr) -> describe ("using " ++ cDscr) $ procT c) caps
 
 -- | A synonym for constructing pairs that allows the word @using@ to be used with 'session' so that the session
--- description reads like a sentance.
+-- description reads like a sentence.
 --
 -- >allBrowsers :: [Capabilities]
 -- >allBrowsers = [firefoxCaps, chromeCaps, ieCaps]
@@ -278,7 +301,7 @@ sessionWith cfg msg (caps, spec) = spec'
 -- >        ...
 -- >  session "for the users page" $ using browsersExceptIE $ do
 -- >    ...
-using :: (HasCallStack) => [Capabilities] -> SpecWith (WdTestSession multi) -> ([Capabilities], SpecWith (WdTestSession multi))
+using :: (HasCallStack) => [caps] -> SpecWith (WdTestSession multi) -> ([caps], SpecWith (WdTestSession multi))
 using = (,)
 
 -- | Default capabilities which can be used in the list passed to 'using'.  I suggest creating a
@@ -293,8 +316,7 @@ iphoneCaps = W.defaultCaps { W.browser = W.iPhone }
 ipadCaps = W.defaultCaps { W.browser = W.iPad }
 androidCaps = W.defaultCaps { W.browser = W.android }
 
-data AbortSession = AbortSession
-    deriving (Show, Typeable)
+data AbortSession = AbortSession deriving (Show, Typeable)
 instance Exception AbortSession
 
 -- | Abort the session without closing the session.
@@ -315,20 +337,20 @@ x `shouldBe` y = liftIO $ x `H.shouldBe` y
 -- | Asserts that the given element matches the given tag.
 shouldBeTag :: (HasCallStack) => Element -> T.Text -> WD ()
 e `shouldBeTag` name = do
-    t <- tagName e
-    liftIO $ assertEqual ("tag of " ++ show e) name t
+  t <- tagName e
+  liftIO $ assertEqual ("tag of " ++ show e) name t
 
 -- | Asserts that the given element has the given text.
 shouldHaveText :: (HasCallStack) => Element -> T.Text -> WD ()
 e `shouldHaveText` txt = do
-    t <- getText e
-    liftIO $ assertEqual ("text of " ++ show e) txt t
+  t <- getText e
+  liftIO $ assertEqual ("text of " ++ show e) txt t
 
 -- | Asserts that the given elemnt has the attribute given by @(attr name, value)@.
 shouldHaveAttr :: (HasCallStack) => Element -> (T.Text, T.Text) -> WD ()
 e `shouldHaveAttr` (a, txt) = do
-    t <- attr e a
-    liftIO $ assertEqual ("attribute " ++ T.unpack a ++ " of " ++ show e) (Just txt) t
+  t <- attr e a
+  liftIO $ assertEqual ("attribute " ++ T.unpack a ++ " of " ++ show e) (Just txt) t
 
 -- | Asserts that the action returns the expected result.
 shouldReturn :: (Show a, Eq a, HasCallStack) => WD a -> a -> WD ()
@@ -337,29 +359,30 @@ action `shouldReturn` expected = action >>= (\a -> liftIO $ a `H.shouldBe` expec
 -- | Asserts that the action throws an exception.
 shouldThrow :: (Show e, Eq e, Exception e, HasCallStack) => WD a -> e -> WD ()
 shouldThrow w expected = do
-    r <- try w
-    case r of
-        Left err -> err `shouldBe` expected
-        Right _ -> liftIO $ assertFailure $ "did not get expected exception " ++ show expected
+  r <- try w
+  case r of
+    Left err -> err `shouldBe` expected
+    Right _ -> liftIO $ assertFailure $ "did not get expected exception " ++ show expected
 
 --------------------------------------------------------------------------------
 -- Internal Test Runner
 --------------------------------------------------------------------------------
 
+createWDSession :: W.WDConfig -> IO W.WDSession
+createWDSession cfg = do
+  s <- W.mkSession cfg
+#if MIN_VERSION_webdriver(0,7,0)
+  W.runWD s $ createSession $ W.wdCapabilities cfg
+#else
+  W.runWD s $ createSession [] $ W.wdCapabilities cfg
+#endif
+
 -- | Create a WdTestSession.
 createTestSession :: (HasCallStack) => W.WDConfig -> [MVar (SessionState multi)] -> Int -> WdTestSession multi
 createTestSession cfg mvars n = WdTestSession open close
     where
-        open | n == 0 = return $ SessionState [] False False create
-             | otherwise = takeMVar (mvars !! n)
-
-        create = do
-            s <- W.mkSession cfg
-#if MIN_VERSION_webdriver(0,7,0)
-            W.runWD s $ createSession $ W.wdCapabilities cfg
-#else
-            W.runWD s $ createSession [] $ W.wdCapabilities cfg
-#endif
+        open | n == 0 = return $ SessionState [] False False cfg
+             | otherwise = readMVar (mvars !! n)
 
         close st | length mvars - 1 == n = mapM_ ((`W.runWD` closeSession) . snd) $ stSessionMap st
                  | otherwise = putMVar (mvars !! (n + 1)) st
@@ -374,70 +397,78 @@ procSpecItem cfg mvars n item = item { itemExample = \p act progress -> itemExam
 -- the entire tree.
 procTestSession :: (HasCallStack) => W.WDConfig -> Capabilities -> SpecWith (WdTestSession multi) -> Spec
 procTestSession cfg cap s = do
-    (mvars, trees) <- runIO $ do
-        trees <- runSpecM s
-        let cnt = countItems trees
-        mvars <- replicateM cnt newEmptyMVar
-        return (mvars, trees)
+  (mvars, trees) <- runIO $ do
+    trees <- runSpecM s
+    let cnt = countItems trees
+    mvars <- replicateM cnt newEmptyMVar
+    return (mvars, trees)
 
-    fromSpecList $ mapWithCounter (procSpecItem cfg {W.wdCapabilities = cap} mvars) trees
+  fromSpecList $ mapWithCounter (procSpecItem (cfg {W.wdCapabilities = cap}) mvars) trees
 
 instance Eq multi => Example (WdExample multi) where
     type Arg (WdExample multi) = WdTestSession multi
     evaluateExample (WdPending msg) _ _ _ = return $ Pending msg
-    evaluateExample (WdExample multi (WdOptions {skipRemainingTestsAfterFailure}) wd) _ act _ = do
-        prevHadError <- newIORef False
-        aborted <- newIORef False
+    evaluateExample wdExample _ act _ = do
+      -- IORefs are gross here but they're necessary to get the results out of 'act'
+      prevHadError <- newIORef False
+      aborted <- newIORef False
 
-        act $ \testsession -> do
+      act $ \testsession -> do
+        (tstate', maybeError) <- runAction' wdExample testsession
 
-            tstate <- wdTestOpen testsession
+        -- Running wdTestClose allows the next test to proceed
+        wdTestClose testsession tstate'
+        whenJust maybeError $ throwIO
 
-            msess <- case (lookup multi $ stSessionMap tstate,
-                           (stPrevHadError tstate || stPrevAborted tstate) && skipRemainingTestsAfterFailure) of
-                (_, True) -> return Nothing
-                (Just s, False) -> return $ Just s
-                (Nothing, False) ->
-                    Just <$> stCreateSession tstate
-                        `onException` wdTestClose testsession tstate { stPrevHadError = True }
+        writeIORef aborted (stPrevAborted tstate')
+        writeIORef prevHadError (stPrevHadError tstate')
 
-            case msess of
-                Just wdsession -> W.runWD wdsession $ do
-                    -- run the example
-                    macterr <- try wd
-                    case macterr of
-                        Right () -> do
-                            -- pass current session on to the next test
-                            wdsession' <- W.getSession
-                            let smap = (multi, wdsession') : filter ((/=multi) . fst) (stSessionMap tstate)
-                            liftIO $ wdTestClose testsession tstate { stSessionMap = smap }
+      merr <- readIORef prevHadError
+      mabort <- readIORef aborted
+      return $ case (merr, mabort) of
+          (True, _) -> Pending (Just "Previous example had an error")
+          (_, True) -> Pending (Just "Session has been aborted")
+          _ -> Success
 
-                        Left acterr@(SomeException actex) ->
-                            case cast actex of
-                                Just AbortSession -> do
-                                    -- pass empty list on to the next test so the session is not closed
-                                    liftIO $ wdTestClose testsession tstate { stSessionMap = [], stPrevAborted = True }
-                                    liftIO $ writeIORef aborted True
-                                Nothing -> do
-                                    liftIO $ wdTestClose testsession tstate { stPrevHadError = True }
-                                    throwIO acterr
+runAction' (WdExample multi (WdOptions {skipRemainingTestsAfterFailure}) wd) testsession = do
+  tstate <- wdTestOpen testsession
 
-                _ -> do
-                    -- on error, just pass along the session and error
-                    writeIORef prevHadError $ stPrevHadError tstate
-                    writeIORef aborted $ stPrevAborted tstate
-                    wdTestClose testsession tstate
+  let shouldSkip = (stPrevHadError tstate || stPrevAborted tstate) && skipRemainingTestsAfterFailure
 
-        merr <- readIORef prevHadError
-        mabort <- readIORef aborted
-        return $ case (merr, mabort) of
-            (True, _) -> Pending (Just "Previous example had an error")
-            (_, True) -> Pending (Just "Session has been aborted")
-            _ -> Success
+  eitherMSess :: Either String W.WDSession <- case lookup multi $ stSessionMap tstate of
+    Just s -> return $ Right s
+    Nothing -> onException (Right <$> (createWDSession $ stConfig tstate)) (return $ Left "Failed to create session")
+
+  (aborted, (errored, maybeImmediateError), maybeWDSession') <- case eitherMSess of
+    Left _ -> return (stPrevAborted tstate, (stPrevHadError tstate, Nothing), Nothing)
+
+    Right wdsession | shouldSkip -> return (stPrevAborted tstate, (stPrevHadError tstate, Nothing), Just wdsession)
+
+    Right wdsession -> W.runWD wdsession $ do
+      macterr <- try wd
+      case macterr of
+        Right () -> W.getSession >>= \session' -> return $ (stPrevAborted tstate, (stPrevHadError tstate, Nothing), Just session')
+        Left acterr@(SomeException actex) ->
+          case cast actex of
+            Just AbortSession -> return (True, (stPrevHadError tstate, Nothing), Nothing)
+            Nothing -> return (False, (True, Just acterr), Nothing)
+
+  (tstate', maybeError) <- case (aborted, (errored, maybeImmediateError), maybeWDSession') of
+    (True, _, _) -> return (tstate { stSessionMap = [], stPrevAborted = True }, Nothing) -- pass empty list on to the next test so the session is not closed
+    (_, (True, Just acterr), _) -> return (tstate { stPrevHadError = True }, Just acterr)
+    (_, _, Just wdsession') -> do
+      let smap = (multi, wdsession') : filter ((/=multi) . fst) (stSessionMap tstate)
+      return (tstate { stSessionMap = smap }, Nothing)
+
+  return (tstate', maybeError)
 
 --------------------------------------------------------------------------------
 --- Utils
 --------------------------------------------------------------------------------
+
+whenJust :: (Monad m) => Maybe a -> (a -> m b) -> m ()
+whenJust Nothing _ = return ()
+whenJust (Just x) action = void $ action x
 
 -- | Traverse a spec allowing the type to change
 traverseTree :: (HasCallStack) => Applicative f => (Item a -> f (Item b)) -> SpecTree a -> f (SpecTree b)
@@ -454,10 +485,45 @@ traverseSpec f = traverse (traverseTree f)
 -- | Process the items in a depth-first walk, passing in the item counter value.
 mapWithCounter :: (HasCallStack) => (Int -> Item a -> Item b) -> [SpecTree a] -> [SpecTree b]
 mapWithCounter f s = flip evalState 0 $ traverseSpec go s
-    where
-        go item = state $ \cnt -> (f cnt item, cnt+1)
+    where go item = state $ \cnt -> (f cnt item, cnt + 1)
 
 countItems :: (HasCallStack) => [SpecTree a] -> Int
 countItems s = flip execState 0 $ traverseSpec go s
-    where
-        go item = state $ \cnt -> (item, cnt+1)
+    where go item = state $ \cnt -> (item, cnt+1)
+
+-- * Hooks
+
+-- | Run a custom action before every spec item.
+before :: (Eq multi) => WdExample multi -> SpecWith (WdTestSession multi) -> SpecWith (WdTestSession multi)
+before ex = beforeWith $ combineFn ex
+
+-- | Run a custom action before the first spec item.
+beforeAll :: (Eq multi) => WdExample multi -> SpecWith (WdTestSession multi) -> SpecWith (WdTestSession multi)
+beforeAll ex spec = do
+  mvar <- runIO (newMVar Empty)
+  beforeWith (\testsession -> (memoize mvar (combineFn ex testsession))) spec
+
+-- | Run a custom action after every spec item.
+-- Currently swallows errors
+after :: (Eq multi) => WdExample multi -> SpecWith (WdTestSession multi) -> SpecWith (WdTestSession multi)
+after ex = aroundWith $ \initialAction testsession -> finally (initialAction testsession) (runAction' ex testsession) >> return ()
+
+combineFn :: (Eq multi) => WdExample multi -> WdTestSession multi -> IO (WdTestSession multi)
+combineFn ex = (\testsession -> do
+                   (tstate', maybeError) <- runAction' ex testsession
+                   whenJust maybeError throwIO
+                   return testsession)
+
+data Memoized a = Empty
+                | Memoized a
+                | Failed SomeException
+
+memoize :: MVar (Memoized a) -> IO a -> IO a
+memoize mvar action = do
+  result <- modifyMVar mvar $ \ma -> case ma of
+    Empty -> do
+      a <- try action
+      return (either Failed Memoized a, a)
+    Memoized a -> return (ma, Right a)
+    Failed _ -> throwIO (Pending (Just "exception in beforeAll-hook (see previous failure)"))
+  either throwIO return result

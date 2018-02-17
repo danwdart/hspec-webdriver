@@ -29,10 +29,12 @@ library
 
     build-depends: base                 >= 4.9
                  , HUnit
+                 , aeson
                  , data-default         >= 0.5
                  , hashable             >= 1.2
                  , hspec-core
                  , hspec
+                 , interpolate
                  , lifted-base          >= 0.2
                  , stm                  >= 2.4
                  , text                 >= 0.11
