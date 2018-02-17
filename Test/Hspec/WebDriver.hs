@@ -85,8 +85,6 @@ module Test.Hspec.WebDriver (
   , module Test.WebDriver.Commands
 ) where
 
-import Control.Concurrent.MVar
-import Control.Monad (replicateM)
 import Control.Monad.IO.Class (liftIO)
 import qualified Data.Aeson as A
 import Data.Default (Default(..))
@@ -94,7 +92,6 @@ import qualified Data.Text as T
 import GHC.Stack
 import qualified Test.Hspec as H
 import Test.Hspec hiding (shouldReturn, shouldBe, shouldSatisfy, shouldThrow, pending, pendingWith, example, before, beforeAll, after)
-import Test.Hspec.Core.Spec (Item(..), fromSpecList, runSpecM)
 import Test.WebDriver (WD, Capabilities)
 import qualified Test.WebDriver as W
 import qualified Test.WebDriver.Capabilities as W
@@ -102,11 +99,10 @@ import Test.WebDriver.Commands
 
 import Test.Hspec.WebDriver.Capabilities
 import Test.Hspec.WebDriver.Convenience
-import Test.Hspec.WebDriver.Core ()
+import Test.Hspec.WebDriver.Core
 import Test.Hspec.WebDriver.Expectations
 import Test.Hspec.WebDriver.Hooks
 import Test.Hspec.WebDriver.Types
-import Test.Hspec.WebDriver.Util
 
 
 #if !MIN_VERSION_base(4,8,0)
@@ -213,34 +209,3 @@ sessionWith cfg msg (caps, spec) = spec'
                 [] -> it msg $ H.pendingWith "No capabilities specified"
                 [(c,cDscr)] -> describe (msg ++ " using " ++ cDscr) $ procT c
                 _ -> describe msg $ mapM_ (\(c,cDscr) -> describe ("using " ++ cDscr) $ procT c) caps
-
---------------------------------------------------------------------------------
--- Internal Test Runner
---------------------------------------------------------------------------------
-
--- | Create a WdTestSession.
-createTestSession :: (HasCallStack) => W.WDConfig -> [MVar (SessionState multi)] -> Int -> WdTestSession multi
-createTestSession cfg mvars n = WdTestSession open close
-  where
-    open | n == 0 = return $ SessionState [] False False cfg
-         | otherwise = readMVar (mvars !! n)
-
-    close st | length mvars - 1 == n = mapM_ ((`W.runWD` closeSession) . snd) $ stSessionMap st
-             | otherwise = putMVar (mvars !! (n + 1)) st
-
--- | Convert a single test item to a generic item by providing it with the WdTestSession.
-procSpecItem :: (HasCallStack) => W.WDConfig -> [MVar (SessionState multi)] -> Int -> Item (WdTestSession multi) -> Item ()
-procSpecItem cfg mvars n item = item { itemExample = \p act progress -> itemExample item p (act . act') progress }
-  where act' f () = f (createTestSession cfg mvars n)
-
--- | Convert a spec tree of test items to a spec tree of generic items by creating a single session for
--- the entire tree.
-procTestSession :: (HasCallStack) => W.WDConfig -> Capabilities -> SpecWith (WdTestSession multi) -> Spec
-procTestSession cfg cap s = do
-  (mvars, trees) <- runIO $ do
-    trees <- runSpecM s
-    let cnt = countItems trees
-    mvars <- replicateM cnt newEmptyMVar
-    return (mvars, trees)
-
-  fromSpecList $ mapWithCounter (procSpecItem (cfg {W.wdCapabilities = cap}) mvars) trees
