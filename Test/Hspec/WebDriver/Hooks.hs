@@ -28,7 +28,7 @@ after ex = aroundWith $ \initialAction testsession -> finally (initialAction tes
 
 combineFn :: (Eq multi) => WdExample multi -> WdTestSession multi -> IO (WdTestSession multi)
 combineFn ex = (\testsession -> do
-                   (tstate', maybeError) <- runAction' ex testsession
+                   (tstate', maybeError, skipped) <- runAction' ex testsession
                    whenJust maybeError throwIO
                    return testsession)
 

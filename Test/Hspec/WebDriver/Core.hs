@@ -29,14 +29,14 @@ instance Eq multi => Example (WdExample multi) where
       aborted <- newIORef False
 
       act $ \testsession -> do
-        (tstate', maybeError) <- runAction' wdExample testsession
+        (tstate', maybeError, skipped) <- runAction' wdExample testsession
 
         -- Running wdTestClose allows the next test to proceed
         wdTestClose testsession tstate'
         whenJust maybeError throwIO
 
         writeIORef aborted (stPrevAborted tstate')
-        writeIORef prevHadError (stPrevHadError tstate')
+        writeIORef prevHadError (skipped && stPrevHadError tstate')
 
       merr <- readIORef prevHadError
       mabort <- readIORef aborted
@@ -45,12 +45,12 @@ instance Eq multi => Example (WdExample multi) where
           (_, True) -> Pending (Just "Session has been aborted")
           _ -> Success
 
-runAction' :: Eq multi => WdExample multi -> WdTestSession multi -> IO (SessionState multi, Maybe SomeException)
+runAction' :: Eq multi => WdExample multi -> WdTestSession multi -> IO (SessionState multi, Maybe SomeException, Bool)
 runAction' (WdPending _) _ = error "runAction called on a WdPending"
 runAction' (WdExample multi (WdOptions {skipRemainingTestsAfterFailure}) wd) testsession = do
   tstate <- wdTestOpen testsession
 
-  let shouldSkip = (stPrevHadError tstate || stPrevAborted tstate) && skipRemainingTestsAfterFailure
+  let skip = (stPrevHadError tstate || stPrevAborted tstate) && skipRemainingTestsAfterFailure
 
   eitherMSess :: Either String W.WDSession <- case lookup multi $ stSessionMap tstate of
     Just s -> return $ Right s
@@ -59,7 +59,7 @@ runAction' (WdExample multi (WdOptions {skipRemainingTestsAfterFailure}) wd) tes
   (aborted, (errored, maybeImmediateError), maybeWDSession') <- case eitherMSess of
     Left _ -> return (stPrevAborted tstate, (stPrevHadError tstate, Nothing), Nothing)
 
-    Right wdsession | shouldSkip -> return (stPrevAborted tstate, (stPrevHadError tstate, Nothing), Just wdsession)
+    Right wdsession | skip -> return (stPrevAborted tstate, (stPrevHadError tstate, Nothing), Just wdsession)
 
     Right wdsession -> W.runWD wdsession $ do
       macterr <- try wd
@@ -74,10 +74,10 @@ runAction' (WdExample multi (WdOptions {skipRemainingTestsAfterFailure}) wd) tes
     (True, _, _) -> return (tstate { stSessionMap = [], stPrevAborted = True }, Nothing) -- pass empty list on to the next test so the session is not closed
     (_, (True, Just acterr), _) -> return (tstate { stPrevHadError = True }, Just acterr)
     (_, _, Just wdsession') -> do
-      let smap = (multi, wdsession') : filter ((/=multi) . fst) (stSessionMap tstate)
+      let smap = (multi, wdsession') : filter ((/= multi) . fst) (stSessionMap tstate)
       return (tstate { stSessionMap = smap }, Nothing)
 
-  return (tstate', maybeError)
+  return (tstate', maybeError, skip)
 
 createWDSession :: W.WDConfig -> IO W.WDSession
 createWDSession cfg = do
@@ -115,8 +115,6 @@ procTestSession :: (HasCallStack) => W.WDConfig -> Capabilities -> SpecWith (WdT
 procTestSession cfg cap s = do
   (mvars, trees) <- runIO $ do
     trees <- runSpecM s
-    let cnt = countItems trees
-    mvars <- replicateM cnt newEmptyMVar
-    return (mvars, trees)
+    (, trees) <$> replicateM (countItems trees) newEmptyMVar
 
   fromSpecList $ mapWithCounter (procSpecItem (cfg {W.wdCapabilities = cap}) mvars) trees
