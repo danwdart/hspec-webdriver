@@ -23,11 +23,6 @@ traverseTree f (NodeWithCleanup c ss) = NodeWithCleanup c' <$> traverse (travers
 traverseSpec :: (HasCallStack) => Applicative f => (Item a -> f (Item b)) -> [SpecTree a] -> f [SpecTree b]
 traverseSpec f = traverse (traverseTree f)
 
--- | Process the items in a depth-first walk, passing in the item counter value.
-mapWithCounter :: (HasCallStack) => (Int -> Item a -> Item b) -> [SpecTree a] -> [SpecTree b]
-mapWithCounter f s = flip evalState 0 $ traverseSpec go s
-  where go item = state $ \cnt -> (f cnt item, cnt + 1)
-
 mapNormal :: (HasCallStack) => (Item a -> Item b) -> [SpecTree a] -> [SpecTree b]
 mapNormal f s = flip evalState 0 $ traverseSpec go s
   where go item = state $ \cnt -> (f item, cnt + 1)

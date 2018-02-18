@@ -75,9 +75,7 @@ module Test.Hspec.WebDriver (
   , runIO
 
   -- * Hooks
-  , before
-  , beforeAll
-  , after
+  , module Test.Hspec.WebDriver.Hooks
 
   -- * Re-exports from "Test.WebDriver"
   , WD
@@ -206,6 +204,6 @@ sessionWith cfg msg (caps, spec) = spec'
   where
     procT c = procTestSession cfg (W.getCaps c) spec
     spec' = case caps of
-                [] -> it msg $ H.pendingWith "No capabilities specified"
-                [(c,cDscr)] -> describe (msg ++ " using " ++ cDscr) $ procT c
-                _ -> describe msg $ mapM_ (\(c,cDscr) -> describe ("using " ++ cDscr) $ procT c) caps
+              [] -> it msg $ H.pendingWith "No capabilities specified"
+              [(c,cDscr)] -> describe (msg ++ " using " ++ cDscr) $ procT c
+              _ -> describe msg $ mapM_ (\(c,cDscr) -> describe ("using " ++ cDscr) $ procT c) caps

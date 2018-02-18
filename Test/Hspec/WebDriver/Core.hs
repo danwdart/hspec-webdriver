@@ -44,11 +44,10 @@ runAction' (WdPending _) _ = error "runAction called on a WdPending"
 runAction' (WdExample multi (WdOptions {skipRemainingTestsAfterFailure}) wd) tstate = do
   let skip = (stPrevHadError tstate || stPrevAborted tstate) && skipRemainingTestsAfterFailure
 
-  eitherMSess :: Either String W.WDSession <- modifyMVar (stSessionMap tstate) $ \items -> do
+  eitherMSess :: Either String W.WDSession <- modifyMVar (stSessionMap tstate) $ \items ->
     case lookup multi items of
       Just s -> return (items, Right s)
       Nothing -> flip onException (return (items, Left "Failed to create session")) $ do
-        putStrLn "Making new session"
         newSession <- createWDSession $ stConfig tstate
         return ((multi, newSession) : items, Right newSession)
 
@@ -89,7 +88,6 @@ createWDSession cfg = do
 --------------------------------------------------------------------------------
 
 -- | Convert a single test item to a generic item by providing it with the WdTestSession.
--- procSpecItem :: (HasCallStack) => Item (WdTestSession multi) -> Item ()
 procSpecItem :: t -> Item t -> Item ()
 procSpecItem sessionState item = item { itemExample = \p act progress -> itemExample item p (act . act') progress }
   where act' f () = f sessionState

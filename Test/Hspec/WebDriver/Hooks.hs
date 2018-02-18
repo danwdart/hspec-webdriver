@@ -1,10 +1,15 @@
 {-# LANGUAGE OverloadedStrings, QuasiQuotes, FlexibleInstances, DeriveDataTypeable, TypeFamilies, CPP, NamedFieldPuns, ScopedTypeVariables, TupleSections #-}
-module Test.Hspec.WebDriver.Hooks where
+module Test.Hspec.WebDriver.Hooks (
+  before
+  , beforeAll
+  , after
+  ) where
 
 import Control.Concurrent.MVar
 import Control.Exception (SomeException(..))
 import Control.Exception.Lifted (try, throwIO, finally)
-import Test.Hspec
+import Test.Hspec (SpecWith, runIO)
+import qualified Test.Hspec as H
 import Test.Hspec.Core.Spec (Result(..))
 import Test.Hspec.WebDriver.Types
 
@@ -13,18 +18,18 @@ import Test.Hspec.WebDriver.Util
 
 -- | Run a custom action before every spec item.
 before :: (Eq multi) => WdExample multi -> SpecWith (WdTestSession multi) -> SpecWith (WdTestSession multi)
-before ex = beforeWith $ combineFn ex
+before ex = H.beforeWith $ combineFn ex
 
 -- | Run a custom action before the first spec item.
 beforeAll :: (Eq multi) => WdExample multi -> SpecWith (WdTestSession multi) -> SpecWith (WdTestSession multi)
 beforeAll ex spec = do
   mvar <- runIO (newMVar Empty)
-  beforeWith (\testsession -> (memoize mvar (combineFn ex testsession))) spec
+  H.beforeWith (\testsession -> (memoize mvar (combineFn ex testsession))) spec
 
 -- | Run a custom action after every spec item.
 -- Currently swallows errors
 after :: (Eq multi) => WdExample multi -> SpecWith (WdTestSession multi) -> SpecWith (WdTestSession multi)
-after ex = aroundWith $ \initialAction testsession -> finally (initialAction testsession) (runAction' ex testsession) >> return ()
+after ex = H.aroundWith $ \initialAction testsession -> finally (initialAction testsession) (runAction' ex testsession) >> return ()
 
 combineFn :: (Eq multi) => WdExample multi -> WdTestSession multi -> IO (WdTestSession multi)
 combineFn ex = (\testsession -> do
