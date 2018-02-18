@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings, QuasiQuotes, FlexibleInstances, DeriveDataTypeable, TypeFamilies, CPP, NamedFieldPuns, ScopedTypeVariables, TupleSections #-}
 module Test.Hspec.WebDriver.Types where
 
+import Control.Concurrent
 import Control.Exception
 import Data.Default (Default(..))
 import Data.Typeable (Typeable)
@@ -10,21 +11,15 @@ import qualified Test.WebDriver.Session as W
 
 
 -- | The state passed between examples inside the mvars.
-data SessionState multi = SessionState {
+data WdTestSession multi = WdTestSession {
     -- | The already created sessions
-    stSessionMap :: [(multi, W.WDSession)]
+    stSessionMap :: MVar [(multi, W.WDSession)]
     -- | True if the previous example had an error
   , stPrevHadError :: Bool
     -- | True if the previous example was aborted with 'inspectSession'
   , stPrevAborted :: Bool
     -- | Create a new session
   , stConfig :: W.WDConfig
-}
-
--- | Internal state for webdriver test sessions.
-data WdTestSession multi = WdTestSession {
-    wdTestOpen :: IO (SessionState multi)
-  , wdTestClose :: SessionState multi -> IO ()
 }
 
 -- | A webdriver example.

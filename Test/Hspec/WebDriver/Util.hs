@@ -26,8 +26,12 @@ traverseSpec f = traverse (traverseTree f)
 -- | Process the items in a depth-first walk, passing in the item counter value.
 mapWithCounter :: (HasCallStack) => (Int -> Item a -> Item b) -> [SpecTree a] -> [SpecTree b]
 mapWithCounter f s = flip evalState 0 $ traverseSpec go s
-    where go item = state $ \cnt -> (f cnt item, cnt + 1)
+  where go item = state $ \cnt -> (f cnt item, cnt + 1)
+
+mapNormal :: (HasCallStack) => (Item a -> Item b) -> [SpecTree a] -> [SpecTree b]
+mapNormal f s = flip evalState 0 $ traverseSpec go s
+  where go item = state $ \cnt -> (f item, cnt + 1)
 
 countItems :: (HasCallStack) => [SpecTree a] -> Int
 countItems s = flip execState 0 $ traverseSpec go s
-    where go item = state $ \cnt -> (item, cnt+1)
+  where go item = state $ \cnt -> (item, cnt+1)
