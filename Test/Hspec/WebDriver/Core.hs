@@ -5,9 +5,11 @@ module Test.Hspec.WebDriver.Core where
 import Control.Concurrent
 import Control.Exception (SomeException(..))
 import Control.Exception.Lifted (try, onException, throwIO)
+import Control.Monad
 import Data.IORef (newIORef, writeIORef, readIORef)
 import Data.Typeable (cast)
 import Test.Hspec
+import qualified Test.Hspec as H
 import Test.Hspec.Core.Spec (Result(..), Example(..), Item(..), fromSpecList, runSpecM)
 import Test.Hspec.WebDriver.Types
 import Test.Hspec.WebDriver.Util
@@ -94,9 +96,14 @@ procSpecItem sessionState item = item { itemExample = \p act progress -> itemExa
 
 -- | Convert a spec tree of test items to a spec tree of generic items by creating a single session for
 -- the entire tree.
+-- Close all sessions at the end of the tests.
 procTestSession :: W.WDConfig -> W.Capabilities -> SpecWith (WdTestSession multi) -> Spec
-procTestSession cfg cap s = do
-  trees <- runIO $ runSpecM s
-  initialVar <- runIO $ newMVar []
-  let initialWdTestSession = WdTestSession initialVar False False (cfg {W.wdCapabilities = cap})
+procTestSession cfg cap spec = do
+  sessionsVar <- runIO $ newMVar []
+
+  let closeSessions = void $ withMVar sessionsVar $ \pairs -> sequence [W.runWD y W.closeSession | (_, y) <- pairs]
+
+  trees <- runIO $ runSpecM $ H.afterAll_ closeSessions spec
+
+  let initialWdTestSession = WdTestSession sessionsVar False False (cfg {W.wdCapabilities = cap})
   fromSpecList $ mapNormal (procSpecItem initialWdTestSession) trees
