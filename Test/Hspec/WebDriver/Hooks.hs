@@ -3,11 +3,13 @@ module Test.Hspec.WebDriver.Hooks (
   before
   , beforeAll
   , after
+  , afterAll
   ) where
 
 import Control.Concurrent.MVar
 import Control.Exception (SomeException(..))
 import Control.Exception.Lifted (try, throwIO, finally)
+import Control.Monad
 import Test.Hspec (SpecWith, runIO)
 import qualified Test.Hspec as H
 import Test.Hspec.Core.Spec (Result(..))
@@ -30,6 +32,10 @@ beforeAll ex spec = do
 -- Currently swallows errors
 after :: (Eq multi) => WdExample multi -> SpecWith (WdTestSession multi) -> SpecWith (WdTestSession multi)
 after ex = H.aroundWith $ \initialAction testsession -> finally (initialAction testsession) (runAction' ex testsession) >> return ()
+
+-- | Run a custom action after the last spec item.
+afterAll :: (Eq multi) => WdExample multi -> SpecWith (WdTestSession multi) -> SpecWith (WdTestSession multi)
+afterAll ex = H.afterAll (\testsession -> void $ combineFn ex testsession)
 
 combineFn :: (Eq multi) => WdExample multi -> WdTestSession multi -> IO (WdTestSession multi)
 combineFn ex = (\testsession -> do
