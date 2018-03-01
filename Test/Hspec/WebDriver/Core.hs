@@ -106,4 +106,4 @@ procTestSession cfg cap spec = do
   trees <- runIO $ runSpecM $ H.afterAll_ closeSessions spec
 
   let initialWdTestSession = WdTestSession sessionsVar False False (cfg {W.wdCapabilities = cap})
-  fromSpecList $ mapNormal (procSpecItem initialWdTestSession) trees
+  fromSpecList $ mapNormal initialWdTestSession (procSpecItem initialWdTestSession) trees
