@@ -10,10 +10,43 @@ import qualified Test.Hspec as H
 import Test.WebDriver (WD)
 import Test.WebDriver.Commands
 
+expectationFailure :: HasCallStack => String -> WD ()
+expectationFailure = liftIO . H.expectationFailure
 
--- | 'H.shouldBe' lifted into the 'WD' monad.
 shouldBe :: (HasCallStack, Show a, Eq a) => a -> a -> WD ()
 x `shouldBe` y = liftIO $ x `H.shouldBe` y
+
+shouldSatisfy :: (HasCallStack, Show a) => a -> (a -> Bool) -> WD ()
+shouldSatisfy v p = liftIO $ v `H.shouldSatisfy` p
+
+shouldStartWith :: (HasCallStack, Show a, Eq a) => [a] -> [a] -> WD ()
+shouldStartWith list prefix = liftIO $ list `H.shouldStartWith` prefix
+
+shouldEndWith :: (HasCallStack, Show a, Eq a) => [a] -> [a] -> WD ()
+shouldEndWith list prefix = liftIO $ list `H.shouldEndWith` prefix
+
+shouldContain :: (HasCallStack, Show a, Eq a) => [a] -> [a] -> WD ()
+shouldContain list sublist = liftIO $ list `H.shouldContain` sublist
+
+shouldMatchList :: (HasCallStack, Show a, Eq a) => [a] -> [a] -> WD ()
+shouldMatchList xs ys = liftIO $ xs `H.shouldMatchList` ys
+
+shouldReturn :: (HasCallStack, Show a, Eq a) => WD a -> a -> WD ()
+shouldReturn action expected = action >>= (`shouldBe` expected)
+
+shouldNotBe :: (HasCallStack, Show a, Eq a) => a -> a -> WD ()
+x `shouldNotBe` y = liftIO $ x `H.shouldNotBe` y
+
+shouldNotSatisfy :: (HasCallStack, Show a) => a -> (a -> Bool) -> WD ()
+shouldNotSatisfy v p = liftIO $ v `H.shouldNotSatisfy` p
+
+shouldNotContain :: (HasCallStack, Show a, Eq a) => [a] -> [a] -> WD ()
+shouldNotContain list sublist = liftIO $ list `H.shouldNotContain` sublist
+
+shouldNotReturn :: (HasCallStack, Show a, Eq a) => WD a -> a -> WD ()
+shouldNotReturn action expected = action >>= (`shouldNotBe` expected)
+
+-----------------------------------------------------
 
 -- | Asserts that the given element matches the given tag.
 shouldBeTag :: (HasCallStack) => Element -> T.Text -> WD ()
@@ -32,10 +65,6 @@ shouldHaveAttr :: (HasCallStack) => Element -> (T.Text, T.Text) -> WD ()
 e `shouldHaveAttr` (a, txt) = do
   t <- attr e a
   liftIO $ assertEqual ("attribute " ++ T.unpack a ++ " of " ++ show e) (Just txt) t
-
--- | Asserts that the action returns the expected result.
-shouldReturn :: (Show a, Eq a, HasCallStack) => WD a -> a -> WD ()
-action `shouldReturn` expected = action >>= (\a -> liftIO $ a `H.shouldBe` expected)
 
 -- | Asserts that the action throws an exception.
 shouldThrow :: (Show e, Eq e, Exception e, HasCallStack) => WD a -> e -> WD ()
