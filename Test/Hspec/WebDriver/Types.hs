@@ -1,9 +1,12 @@
-{-# LANGUAGE OverloadedStrings, QuasiQuotes, FlexibleInstances, DeriveDataTypeable, TypeFamilies, CPP, NamedFieldPuns, ScopedTypeVariables, TupleSections #-}
+{-# LANGUAGE OverloadedStrings, QuasiQuotes, FlexibleInstances, DeriveDataTypeable, TypeFamilies, CPP, NamedFieldPuns, ScopedTypeVariables, TupleSections, InstanceSigs, DeriveFunctor #-}
 module Test.Hspec.WebDriver.Types where
 
 import Control.Concurrent
 import Control.Exception
 import Data.Default (Default(..))
+import qualified Data.List as L
+import Data.Maybe
+import Data.Monoid
 import Data.Typeable (Typeable)
 import Test.WebDriver (WD)
 import qualified Test.WebDriver as W
@@ -46,6 +49,25 @@ data WdTestSession multi = WdTestSession {
 -- of type @multi@ is seen.  Note that the type system enforces that every example within the
 -- session has the same type @multi@.
 data WdExample multi = WdExample multi WdOptions (WD ()) | WdPending (Maybe String)
+  deriving (Functor)
+
+instance Applicative WdExample where
+  pure multiVal = WdExample multiVal def (return ())
+  (WdExample f opts1 action1) <*> (WdExample multiVal opts2 action2) = WdExample (f multiVal) opts1 (action1 >> action2)
+
+instance Monad WdExample where
+  return multiVal = WdExample multiVal def (return ())
+
+  (>>=) :: forall a b. WdExample a -> (a -> WdExample b) -> WdExample b
+  (WdExample multiVal1 opts1 action1) >>= f = do
+    case f multiVal1 of
+      (WdExample multiVal2 opts2 action2) -> WdExample multiVal2 opts2 (action1 >> action2)
+      (WdPending message) -> error "Can't compose WdExample with WdPending"
+  m1@(WdPending message1) >>= f = do
+    multiVal1 <- m1
+    case f multiVal1 of
+      (WdExample {}) -> error "Can't compose WdExample with WdPending"
+      (WdPending message2) -> WdPending $ Just (mconcat $ L.intersperse " | " $ catMaybes [message1, message2])
 
 newtype WdOptions = WdOptions {
   -- Whether to skip the rest of the tests once one fails
