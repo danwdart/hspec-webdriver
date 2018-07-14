@@ -29,9 +29,8 @@ beforeAll ex spec = do
   H.beforeWith (\testsession -> (memoize mvar (combineFn ex testsession))) spec
 
 -- | Run a custom action after every spec item.
--- Currently swallows errors
 after :: (Eq multi) => WdExample multi -> SpecWith (WdTestSession multi) -> SpecWith (WdTestSession multi)
-after ex = H.aroundWith $ \initialAction testsession -> finally (initialAction testsession) (runAction' ex testsession) >> return ()
+after ex = H.after $ \testsession -> combineFn ex testsession >> return ()
 
 -- | Run a custom action after the last spec item.
 afterAll :: (Eq multi) => WdExample multi -> SpecWith (WdTestSession multi) -> SpecWith (WdTestSession multi)
@@ -39,7 +38,7 @@ afterAll ex = H.afterAll (\testsession -> void $ combineFn ex testsession)
 
 combineFn :: (Eq multi) => WdExample multi -> WdTestSession multi -> IO (WdTestSession multi)
 combineFn ex = (\testsession -> do
-                   (tstate', maybeError, skipped) <- runAction' ex testsession
+                   (_session', maybeError, _skip) <- runAction' ex testsession
                    whenJust maybeError throwIO
                    return testsession)
 
