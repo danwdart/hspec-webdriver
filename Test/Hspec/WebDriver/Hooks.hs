@@ -4,6 +4,7 @@ module Test.Hspec.WebDriver.Hooks (
   , beforeAll
   , after
   , afterAll
+  , aroundWith
   ) where
 
 import Control.Concurrent.MVar
@@ -35,6 +36,10 @@ after ex = H.after $ \testsession -> combineFn ex testsession >> return ()
 -- | Run a custom action after the last spec item.
 afterAll :: (Eq multi) => WdExample multi -> SpecWith (WdTestSession multi) -> SpecWith (WdTestSession multi)
 afterAll ex = H.afterAll (\testsession -> void $ combineFn ex testsession)
+
+aroundWith :: (Eq multi) => (IO () -> (WdExample multi)) -> SpecWith (WdTestSession multi) -> SpecWith (WdTestSession multi)
+aroundWith wrapper = H.aroundWith $ \runTest -> \testsession -> do
+  void $ combineFn (wrapper (runTest testsession)) testsession
 
 combineFn :: (Eq multi) => WdExample multi -> WdTestSession multi -> IO (WdTestSession multi)
 combineFn ex = (\testsession -> do
