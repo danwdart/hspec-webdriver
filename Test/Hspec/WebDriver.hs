@@ -55,7 +55,7 @@ module Test.Hspec.WebDriver (
   , sessionWith
   , inspectSession
   , using
-  , WdTestSession
+  , WdTestSession (..)
 
   -- * Default Capabilities
   , module Test.Hspec.WebDriver.Capabilities
