@@ -46,6 +46,7 @@ module Test.Hspec.WebDriver (
   , runWDOptions
   , runWDWith
   , runWDWithOptions
+  , runWDWithSessionState
   , pending
   , pendingWith
   , example
@@ -111,11 +112,14 @@ import Data.Traversable (traverse)
 -- | A shorthand for constructing a 'WdExample' from a webdriver action when you are only testing a
 -- single browser session at once.  See the XKCD example at the top of the page.
 runWD :: (HasCallStack) => WD () -> WdExample ()
-runWD = WdExample () def
+runWD wd = WdExample () def (const wd)
 
 -- | A version of runWD that accepts some custom options
 runWDOptions :: (HasCallStack) => WdOptions -> WD () -> WdExample ()
-runWDOptions = WdExample ()
+runWDOptions options wd = WdExample () options (const wd)
+
+runWDWithSessionState :: (HasCallStack) => multi -> WdOptions -> (WdTestSession multi -> WD ()) -> WdExample multi
+runWDWithSessionState = WdExample
 
 -- | Create a webdriver example, specifying which of the multiple sessions the example should be
 -- executed against.  I suggest you create an enumeration for multi, for example:
@@ -142,11 +146,11 @@ runWDOptions = WdExample ()
 -- data that Gandolf creates that Bilbo should expect), the best way I have found is to use IORefs
 -- created with 'runIO' (wrapped in a utility module and inserted into @runUser@).
 runWDWith :: (HasCallStack) => multi -> WD () -> WdExample multi
-runWDWith multi = WdExample multi def
+runWDWith multi wd = WdExample multi def (const wd)
 
 -- | A version of runWDWith that accepts some custom options
 runWDWithOptions :: (HasCallStack) => multi -> WdOptions -> WD () -> WdExample multi
-runWDWithOptions = WdExample
+runWDWithOptions browser options wd = WdExample browser options (const wd)
 
 -- | A pending example.
 pending :: (HasCallStack) => WdExample multi
@@ -161,7 +165,7 @@ pendingWith = WdPending . Just
 -- session the expectation is executed against, so a default value is used.  In the case of single
 -- sessions, the type is @WdExample ()@.
 example :: (Default multi, HasCallStack) => Expectation -> WdExample multi
-example = WdExample def def . liftIO
+example = WdExample def def . (const . liftIO)
 
 -- | Combine the examples nested inside this call into a webdriver session or multiple sessions.
 -- For each of the capabilities in the list, the examples are executed one at a time in depth-first

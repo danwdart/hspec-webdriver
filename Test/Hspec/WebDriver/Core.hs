@@ -46,7 +46,7 @@ instance Eq multi => Example (WdExample multi) where
 
 runAction' :: (HasCallStack, Eq multi) => WdExample multi -> WdTestSession multi -> IO (WdTestSession multi, Maybe SomeException, Bool)
 runAction' (WdPending _) _ = error "runAction called on a WdPending"
-runAction' (WdExample multi (WdOptions {skipRemainingTestsAfterFailure}) wd) tstate = do
+runAction' (WdExample multi (WdOptions {skipRemainingTestsAfterFailure}) wdAction) tstate = do
   let skip = (stPrevHadError tstate || stPrevAborted tstate) && skipRemainingTestsAfterFailure
 
   eitherMSess :: Either String W.WDSession <- modifyMVar (stSessionMap tstate) $ \items ->
@@ -62,7 +62,7 @@ runAction' (WdExample multi (WdOptions {skipRemainingTestsAfterFailure}) wd) tst
     Right wdsession | skip -> return (stPrevAborted tstate, (stPrevHadError tstate, Nothing), Just wdsession)
 
     Right wdsession -> W.runWD wdsession $ do
-      macterr <- try wd
+      macterr <- try (wdAction tstate)
       case macterr of
         Right () -> W.getSession >>= \session' -> return (stPrevAborted tstate, (stPrevHadError tstate, Nothing), Just session')
         Left acterr@(SomeException actex) ->
