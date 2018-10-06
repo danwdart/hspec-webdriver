@@ -23,7 +23,7 @@ dependencies:
 - aeson
 - data-default >=0.5
 - hashable >=1.2
-- hspec-core
+- hspec-core >= 2.5.0
 - hspec
 - interpolate
 - lifted-base >=0.2

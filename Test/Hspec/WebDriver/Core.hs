@@ -11,7 +11,7 @@ import Data.Typeable (cast)
 import GHC.Stack
 import Test.Hspec
 import qualified Test.Hspec as H
-import Test.Hspec.Core.Spec (Result(..), Example(..), Item(..), fromSpecList, runSpecM, Params, ProgressCallback)
+import Test.Hspec.Core.Spec
 import Test.Hspec.WebDriver.Types
 import Test.Hspec.WebDriver.Util
 import qualified Test.WebDriver as W
@@ -24,7 +24,7 @@ instance Eq multi => Example (WdExample multi) where
   type Arg (WdExample multi) = WdTestSession multi
 
   evaluateExample :: (HasCallStack) => WdExample multi -> Params -> (ActionWith (Arg (WdExample multi)) -> IO ()) -> ProgressCallback -> IO Result
-  evaluateExample (WdPending msg) _ _ _ = return $ Pending msg
+  evaluateExample (WdPending msg) _ _ _ = return $ Result "" $ Pending Nothing msg
   evaluateExample wdExample _ act _ = do
     -- IORefs are gross here but they're necessary to get the results out of 'act'
     prevHadError <- newIORef False
@@ -40,9 +40,9 @@ instance Eq multi => Example (WdExample multi) where
     merr <- readIORef prevHadError
     mabort <- readIORef aborted
     return $ case (merr, mabort) of
-        (True, _) -> Pending (Just "Previous example had an error")
-        (_, True) -> Pending (Just "Session has been aborted")
-        _ -> Success
+        (True, _) -> Result "" $ Pending Nothing (Just "Previous example had an error")
+        (_, True) -> Result "" $ Pending Nothing (Just "Session has been aborted")
+        _ -> Result "" Success
 
 runAction' :: (HasCallStack, Eq multi) => WdExample multi -> WdTestSession multi -> IO (WdTestSession multi, Maybe SomeException, Bool)
 runAction' (WdPending _) _ = error "runAction called on a WdPending"

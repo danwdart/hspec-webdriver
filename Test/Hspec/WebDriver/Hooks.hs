@@ -13,7 +13,7 @@ import Control.Exception.Lifted (try, throwIO, finally)
 import Control.Monad
 import Test.Hspec (SpecWith, runIO)
 import qualified Test.Hspec as H
-import Test.Hspec.Core.Spec (Result(..))
+import Test.Hspec.Core.Spec
 import Test.Hspec.WebDriver.Types
 
 import Test.Hspec.WebDriver.Core
@@ -58,5 +58,5 @@ memoize mvar action = do
       a <- try action
       return (either Failed Memoized a, a)
     Memoized a -> return (ma, Right a)
-    Failed _ -> throwIO (Pending (Just "exception in beforeAll-hook (see previous failure)"))
+    Failed _ -> throwIO (Pending Nothing (Just "exception in beforeAll-hook (see previous failure)"))
   either throwIO return result
