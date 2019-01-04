@@ -4,9 +4,10 @@ module Test.Hspec.WebDriver.Core where
 
 import Control.Concurrent
 import Control.Exception (SomeException(..))
-import Control.Exception.Lifted (try, onException, throwIO)
+import Control.Exception.Lifted (handle, try, onException, throwIO, SomeException)
 import Control.Monad
 import Data.IORef (newIORef, writeIORef, readIORef)
+import Data.String.Interpolate.IsString
 import Data.Typeable (cast)
 import GHC.Stack
 import Test.Hspec
@@ -73,7 +74,8 @@ runAction' (WdExample multi (WdOptions {skipRemainingTestsAfterFailure}) wdActio
   (tstate', maybeError) <- case (aborted, (errored, maybeImmediateError), maybeWDSession') of
     (True, _, _) -> return (tstate { stPrevAborted = True }, Nothing)
     (_, (True, Just acterr), _) -> return (tstate { stPrevHadError = True }, Just acterr)
-    (_, _, Just wdsession') -> return (tstate, Nothing)
+    (_, _, Just _wdsession') -> return (tstate, Nothing)
+    _ -> error "impossible case reached"
 
   return (tstate', maybeError, skip)
 
@@ -104,7 +106,9 @@ procTestSession :: (HasCallStack) => W.WDConfig -> W.Capabilities -> SpecWith (W
 procTestSession cfg cap spec = do
   sessionsVar <- runIO $ newMVar []
 
-  let closeSessions = void $ withMVar sessionsVar $ \pairs -> sequence [W.runWD y W.closeSession | (_, y) <- pairs]
+  let closeSessions = void $ withMVar sessionsVar $ \pairs -> forM_ pairs $ \(_browser, session) -> do
+        handle (\(e :: SomeException) -> putStrLn [i|Failed to destroy session in closeAllSessionsExceptFirst: #{e}|])
+               (W.runWD session W.closeSession)
 
   trees <- runIO $ runSpecM $ H.afterAll_ closeSessions spec
 

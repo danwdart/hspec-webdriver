@@ -9,8 +9,9 @@ module Test.Hspec.WebDriver.Hooks (
 
 import Control.Concurrent.MVar
 import Control.Exception (SomeException(..))
-import Control.Exception.Lifted (try, throwIO, finally)
+import Control.Exception.Lifted (try, throwIO)
 import Control.Monad
+import Data.String.Interpolate.IsString
 import Test.Hspec (SpecWith, runIO)
 import qualified Test.Hspec as H
 import Test.Hspec.Core.Spec
@@ -44,7 +45,9 @@ aroundWith wrapper = H.aroundWith $ \runTest -> \testsession -> do
 combineFn :: (Eq multi) => WdExample multi -> WdTestSession multi -> IO (WdTestSession multi)
 combineFn ex = (\testsession -> do
                    (_session', maybeError, _skip) <- runAction' ex testsession
-                   whenJust maybeError throwIO
+                   whenJust maybeError $ \e -> do
+                     putStrLn [i|Exception in combineFn: #{e}|]
+                     throwIO e
                    return testsession)
 
 data Memoized a = Empty
